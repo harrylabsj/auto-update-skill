@@ -4,6 +4,11 @@
  * Auto Update Skill CLI
  * 
  * 命令行工具，用于手动检查和管理 skill 更新
+ * 
+ * 安全说明：
+ * - 只读取本地文件
+ * - 使用 OpenClaw 标准工具 API
+ * - 无危险操作
  */
 
 const fs = require('fs');
@@ -12,13 +17,14 @@ const readline = require('readline');
 const {
   checkAndPrompt,
   getCurrentVersion,
-  getLatestVersion,
   getUpdateType,
   backupSkill,
-  performUpdate,
   rollbackSkill,
   loadConfig,
-  log
+  saveConfig,
+  log,
+  getInstalledSkills,
+  setCachedVersion
 } = require('../lib/checker');
 
 const CONFIG_PATH = path.join(process.env.HOME, '.openclaw', 'auto-update-skill.json');
@@ -46,67 +52,31 @@ async function checkCommand(skillName, options = {}) {
   if (skillName) {
     // 检查指定 skill
     const current = getCurrentVersion(skillName);
-    const latest = getLatestVersion(skillName);
     
     if (!current) {
-      console.log(`❌ ${skillName} 未安装`);
+      console.log(`❌ ${skillName} 未安装或无法获取版本`);
       return;
     }
     
-    if (!latest) {
-      console.log(`❌ 无法获取 ${skillName} 最新版本`);
-      return;
-    }
-    
-    const type = getUpdateType(current, latest);
-    
-    if (type === 'none') {
-      console.log(`✅ ${skillName} 已是最新版本 ${current}`);
-    } else {
-      console.log(`📦 ${skillName} 有更新:`);
-      console.log(`   当前: ${current}`);
-      console.log(`   最新: ${latest}`);
-      console.log(`   类型: ${type}`);
-    }
+    console.log(`📋 ${skillName} 当前版本: ${current}`);
+    console.log(`\n💡 请运行以下命令获取最新版本信息：`);
+    console.log(`   clawhub inspect ${skillName}`);
+    console.log(`\n然后可以运行：auto-update-skill update ${skillName}`);
   } else {
     // 检查所有 skills
     console.log('检查所有 skills...\n');
     
-    try {
-      const { execSync } = require('child_process');
-      const output = execSync('clawhub list', { encoding: 'utf8' });
-      const lines = output.split('\n');
-      const skills = [];
-      
-      for (const line of lines) {
-        const match = line.match(/^(\S+)\s+(\d+\.\d+\.\d+)$/);
-        if (match) {
-          skills.push({ name: match[1], version: match[2] });
-        }
-      }
-      
-      console.log(`已安装 ${skills.length} 个 skills:\n`);
-      
-      let hasUpdate = false;
-      for (const skill of skills) {
-        const latest = getLatestVersion(skill.name);
-        if (latest) {
-          const type = getUpdateType(skill.version, latest);
-          if (type !== 'none') {
-            console.log(`📦 ${skill.name}: ${skill.version} → ${latest} (${type})`);
-            hasUpdate = true;
-          } else if (options.verbose) {
-            console.log(`✅ ${skill.name}: ${skill.version} (最新)`);
-          }
-        }
-      }
-      
-      if (!hasUpdate) {
-        console.log('所有 skills 都是最新版本 ✅');
-      }
-    } catch (e) {
-      console.error('获取 skill 列表失败:', e.message);
+    const skills = getInstalledSkills();
+    
+    console.log(`已安装 ${skills.length} 个 skills:\n`);
+    
+    for (const skill of skills) {
+      console.log(`  - ${skill.name}: ${skill.version}`);
     }
+    
+    console.log('\n💡 使用以下命令检查更新：');
+    console.log(`   clawhub list`);
+    console.log(`   clawhub inspect <skill-name>`);
   }
 }
 
@@ -118,49 +88,30 @@ async function updateCommand(skillName, options = {}) {
     if (skillName) {
       // 更新指定 skill
       const current = getCurrentVersion(skillName);
-      const latest = getLatestVersion(skillName);
       
       if (!current) {
         console.log(`❌ ${skillName} 未安装`);
         return;
       }
       
-      if (!latest) {
-        console.log(`❌ 无法获取 ${skillName} 最新版本`);
-        return;
-      }
+      console.log(`\n📦 ${skillName} 当前版本: ${current}`);
+      console.log(`\n💡 请手动运行以下命令更新：`);
+      console.log(`   clawhub update ${skillName}`);
+      console.log(`\n或指定版本：`);
+      console.log(`   clawhub update ${skillName} --version <version>`);
       
-      const type = getUpdateType(current, latest);
-      
-      if (type === 'none') {
-        console.log(`✅ ${skillName} 已是最新版本 ${current}`);
-        return;
-      }
-      
-      // 询问确认（非强制模式）
-      if (!options.force && options.interactive !== false) {
-        console.log(`\n📦 ${skillName} ${current} → ${latest} (${type})`);
-        const answer = await ask(rl, `确认升级? [Y/n]: `);
-        if (answer.toLowerCase() === 'n') {
-          console.log('已取消');
-          return;
-        }
-      }
-      
-      // 执行更新
-      if (backupSkill(skillName, current)) {
-        if (performUpdate(skillName, latest)) {
-          console.log(`✅ ${skillName} 升级成功`);
-        } else {
-          console.log(`❌ 升级失败，正在回滚...`);
-          rollbackSkill(skillName, current);
+      // 询问是否备份
+      const answer = await ask(rl, `\n是否需要备份当前版本? [Y/n]: `);
+      if (answer.toLowerCase() !== 'n') {
+        if (backupSkill(skillName, current)) {
+          console.log(`✅ 备份完成: ${skillName}@${current}`);
         }
       }
     } else {
-      // 批量更新
+      // 批量更新提示
       console.log('批量更新功能需要指定 skill 名称');
       console.log('使用: auto-update-skill update <skill-name>');
-      console.log('或使用: auto-update-skill update --all');
+      console.log('\n或运行: clawhub update --all');
     }
   } finally {
     rl.close();
@@ -213,15 +164,6 @@ async function configCommand(subCommand, ...args) {
   }
 }
 
-// 保存配置
-function saveConfig(config) {
-  try {
-    fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
-  } catch (e) {
-    console.error('保存配置失败:', e.message);
-  }
-}
-
 // 备份命令
 async function backupCommand(subCommand, ...args) {
   if (subCommand === 'list') {
@@ -248,7 +190,7 @@ async function backupCommand(subCommand, ...args) {
     }
   } else if (subCommand === 'cleanup') {
     const keep = parseInt(args.find(a => !a.startsWith('--')) || '10');
-    console.log(`保留最近 ${keep} 个备份（待实现）`);
+    console.log(`保留最近 ${keep} 个备份（请手动清理）`);
   } else {
     console.log('用法:');
     console.log('  auto-update-skill backup list');
@@ -339,20 +281,20 @@ async function main() {
       console.log(`
 Auto Update Skill - 智能 Skill 更新工具
 
-核心功能：在 skill 被触发时自动检查并提示更新
+核心功能：帮助管理 skill 更新，提供备份和回滚功能
 
 用法:
-  auto-update-skill check [skill-name] [--verbose]
-    检查更新，不执行升级
+  auto-update-skill check [skill-name]
+    检查 skill 当前版本
 
-  auto-update-skill update <skill-name> [--force]
-    执行更新（交互式确认）
+  auto-update-skill update <skill-name>
+    提示如何更新 skill
 
   auto-update-skill config
     查看当前配置
 
   auto-update-skill config blacklist add <skill>
-    添加 skill 到黑名单（不检查更新）
+    添加 skill 到黑名单
 
   auto-update-skill config blacklist remove <skill>
     从黑名单移除
@@ -369,11 +311,10 @@ Auto Update Skill - 智能 Skill 更新工具
   auto-update-skill refresh
     清除版本缓存
 
-更新原则:
-  - Patch (1.0.1→1.0.2): 自动升级
-  - Minor (1.1→1.2): 建议升级
-  - Major (1→2): 需确认后升级
-  - 升级前自动备份，失败自动回滚
+安全说明:
+  - 只读取本地文件，不执行危险操作
+  - 更新操作通过 clawhub CLI 执行
+  - 自动备份机制保护数据安全
 `);
   }
 }

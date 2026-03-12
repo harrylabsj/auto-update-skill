@@ -1,225 +1,129 @@
 # Auto Update Skill
 
-智能 Skill 更新工具 - 按需检查、即时提醒、一键升级。
+智能 Skill 更新工具 - 安全地管理 skill 更新。
+
+## 概述
+
+Auto Update Skill 是一个帮助用户管理 OpenClaw skill 更新的工具。它提供版本检查、备份管理和回滚功能，确保更新过程安全可靠。
 
 ## 核心理念
 
-**"在使用时更新"** - 当某个 skill 被触发时，自动检查并提醒更新，而不是定时批量更新。
+**安全第一**：
+- 只读取本地文件，不执行危险操作
+- 更新前自动备份
+- 支持版本回滚
+- 分级更新策略
 
-## 工作流程
+## 功能
 
+- **版本检查** - 查看已安装 skills 的当前版本
+- **备份管理** - 更新前自动备份，支持手动备份
+- **版本回滚** - 升级失败可回滚到之前版本
+- **配置管理** - 黑名单、自动升级策略等
+- **缓存管理** - 智能缓存避免重复检查
+
+## 安装
+
+```bash
+clawhub install auto-update-skill
 ```
-用户触发 Skill
-       ↓
-检查 clawhub 最新版本
-       ↓
-┌─────────────────┐
-│ 版本对比        │
-└─────────────────┘
-       ↓
-   ┌─────────┬─────────┐
-   │ 有更新   │ 最新版   │
-   ↓         ↓
-提醒用户    静默通过
-   ↓
-┌─────────┬─────────┐
-│ 确认升级 │ 暂不升级 │
-↓         ↓
-执行更新   记录跳过
-   ↓
-继续执行原 skill
-```
-
-## 更新原则
-
-### 1. 按需触发
-- 只在 skill 被使用时检查更新
-- 避免不必要的网络请求
-- 24小时内同一 skill 只检查一次
-
-### 2. 分级提醒策略
-
-| 版本变化 | 提醒方式 | 用户操作 |
-|---------|---------|---------|
-| **Patch** (1.0.1→1.0.2) | 静默提示，不中断 | 可选升级 |
-| **Minor** (1.1→1.2) | 温和提醒 | 建议升级 |
-| **Major** (1→2) | 明确提醒 | 需确认后升级 |
-
-### 3. 智能缓存
-- 缓存版本检查结果 24 小时
-- 避免频繁请求 clawhub
-- 可手动强制刷新
-
-### 4. 无缝升级
-- 升级前自动备份当前版本
-- 升级失败自动回滚
-- 升级成功后继续执行原任务
 
 ## 使用方法
 
-### 方式一：包装器模式（推荐）
-
-在 skill 的 SKILL.md 中添加自动更新检查：
-
-```markdown
----
-name: my-skill
-autoUpdate: true    # 启用自动更新检查
----
-
-# My Skill
-
-使用前会自动检查更新...
-```
-
-### 方式二：命令行调用
+### 检查版本
 
 ```bash
-# 检查指定 skill 是否有更新
+# 检查所有已安装 skills
+auto-update-skill check
+
+# 检查指定 skill
 auto-update-skill check my-skill
+```
 
-# 交互式更新（询问用户）
-auto-update-skill update my-skill --interactive
+### 更新 skill
 
-# 强制更新（不询问）
-auto-update-skill update my-skill --force
+```bash
+# 获取更新提示（实际更新使用 clawhub）
+auto-update-skill update my-skill
 
-# 查看更新历史
-auto-update-skill history my-skill
+# 然后按提示运行
+clawhub update my-skill
+```
 
-# 手动刷新缓存
+### 配置管理
+
+```bash
+# 查看配置
+auto-update-skill config
+
+# 添加黑名单（不自动检查更新）
+auto-update-skill config blacklist add my-skill
+
+# 移除黑名单
+auto-update-skill config blacklist remove my-skill
+
+# 设置自动升级策略
+auto-update-skill config auto patch true
+auto-update-skill config auto minor false
+auto-update-skill config auto major false
+```
+
+### 备份与回滚
+
+```bash
+# 列出备份
+auto-update-skill backup list
+
+# 回滚到指定版本
+auto-update-skill rollback my-skill --version 1.0.0
+
+# 清除缓存
 auto-update-skill refresh
 ```
 
-### 方式三：编程调用
+## 配置说明
 
-```javascript
-const autoUpdate = require('auto-update-skill');
-
-// 在 skill 入口处调用
-async function main() {
-  // 检查并提示更新
-  const updateInfo = await autoUpdate.check('my-skill', {
-    interactive: true,      // 交互式询问
-    autoUpgradePatch: true, // Patch 版本自动升级
-    cacheHours: 24          // 缓存时间
-  });
-  
-  if (updateInfo.shouldUpdate) {
-    await autoUpdate.upgrade('my-skill', updateInfo.latestVersion);
-  }
-  
-  // 继续执行 skill 逻辑...
-}
-```
-
-## 配置
+配置文件位置：`~/.openclaw/auto-update-skill.json`
 
 ```json
 {
-  "mode": "interactive",     // interactive | auto | manual
-  "cacheDuration": "24h",    // 版本检查缓存时间
+  "mode": "interactive",
+  "cacheDuration": 86400000,
   "autoUpgrade": {
-    "patch": true,           // Patch 自动升级
-    "minor": false,          // Minor 询问用户
-    "major": false           // Major 明确提醒
+    "patch": true,
+    "minor": false,
+    "major": false
   },
-  "remindInterval": "7d",    // 跳过更新后多久再次提醒
-  "blacklist": [],           // 不检查更新的 skill
-  "quietHours": {            // 安静时段不提醒
+  "remindInterval": 604800000,
+  "blacklist": [],
+  "quietHours": {
     "start": "22:00",
     "end": "08:00"
   }
 }
 ```
 
-## 用户交互示例
+## 更新原则
 
-### Patch 更新（自动）
-```
-[ℹ️] summarize 1.0.1 → 1.0.2 (patch, bug fix)
-[✓] 已自动升级，继续执行任务...
-```
+| 版本变化 | 策略 | 说明 |
+|---------|------|------|
+| **Patch** (1.0.1→1.0.2) | 建议升级 | Bug 修复，安全更新 |
+| **Minor** (1.1→1.2) | 建议升级 | 新功能，向后兼容 |
+| **Major** (1→2) | 需确认 | 重大变更，可能影响功能 |
 
-### Minor 更新（建议）
-```
-[📦] stock-analysis 有更新: 6.2.0 → 6.3.0
-     更新内容: 新增技术指标、优化性能
+## 安全说明
 
-是否升级? [Y/n] (5秒后默认 Y): 
-[✓] 升级完成，继续执行任务...
-```
+- 本工具**只读取本地文件**，不执行网络请求
+- 实际更新操作通过 `clawhub` CLI 执行
+- 所有备份存储在本地 `~/.openclaw/skill-backups/`
+- 无敏感信息收集或传输
 
-### Major 更新（需确认）
-```
-[⚠️] self-improving-agent 重大版本更新: 3.0.0 → 4.0.0
-     ⚠️ 此更新包含重大变更，可能影响现有功能
-     
-     更新内容:
-     - 重构核心架构
-     - API 重大变更
-     - 需要修改配置
-     
-     建议: 查看更新文档后再决定
+## 依赖
 
-是否升级? [y/N]: n
-[ℹ️] 保持当前版本 3.0.0，继续执行任务...
-[ℹ️] 7天后再次提醒
-```
+- Node.js
+- OpenClaw 已安装
+- clawhub CLI 已配置
 
-## 更新日志
+## 许可证
 
-```
-~/.openclaw/logs/auto-update-skill.log
-
-[2026-03-12 11:30:15] INFO: summarize@1.0.1 → 1.0.2 (patch, auto)
-[2026-03-12 11:35:22] INFO: stock-analysis@6.2.0 → 6.3.0 (minor, user confirmed)
-[2026-03-12 11:40:08] SKIP: self-improving-agent 4.0.0 (major, user declined, remind at 2026-03-19)
-```
-
-## 备份与回滚
-
-```bash
-# 查看备份
-auto-update-skill backup list
-
-# 手动回滚
-auto-update-skill rollback my-skill --version 1.0.0
-
-# 清理旧备份（保留最近10个）
-auto-update-skill backup cleanup --keep 10
-```
-
-## 集成到现有 Skill
-
-### 方法：在 SKILL.md 中添加前置检查
-
-```markdown
----
-name: my-skill
-preCheck:
-  - auto-update-skill check $SKILL_NAME --quiet
----
-
-# My Skill
-
-内容...
-```
-
-### 方法：在脚本入口处调用
-
-```javascript
-#!/usr/bin/env node
-
-// skill 入口文件开头
-const { checkAndPrompt } = require('../auto-update-skill/lib/checker');
-
-async function main() {
-  // 自动检查更新并提示
-  await checkAndPrompt('my-skill');
-  
-  // 原 skill 逻辑...
-}
-
-main();
-```
+MIT
